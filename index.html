@@ -2132,6 +2132,12 @@ img, canvas, [class*="img"], [class*="skin"], [class*="tower"] {
         <div class="mode-desc">自动匹配其他玩家联机开打！1分钟内没人匹配，自动AI陪玩开始游戏！</div>
         <div class="mode-tag" style="background:rgba(255,160,0,0.25);color:#ffb84d;">快速匹配</div>
       </button>
+      <button class="mode-card mode-net" id="pvpModeBtn" style="border-color:rgba(255,80,120,0.55);background:linear-gradient(135deg,rgba(255,60,90,0.18),rgba(180,30,60,0.12));">
+        <div class="mode-icon">&#9876;</div>
+        <div class="mode-name">PvP 对战</div>
+        <div class="mode-desc">自动匹配对手，两架战机弹幕对轰！你操纵金色战机从下方进攻，击落对方3次获胜！</div>
+        <div class="mode-tag" style="background:rgba(255,80,120,0.25);color:#ff6b81;">玩家对战</div>
+      </button>
     </div>
     <button class="btn btn-secondary" id="modeBackBtn" style="margin-top:20px;">返回大厅</button>
   </div>
@@ -2381,7 +2387,7 @@ if ('serviceWorker' in navigator) {
   }
 
   // ===== 自动更新检查 =====
-  const CURRENT_VERSION = '3.29';
+  const CURRENT_VERSION = '3.30';
   // 自动获取当前服务器地址（优先使用当前页面地址，失败时使用默认地址）
   function getUpdateServerUrl() {
     try {
@@ -4594,13 +4600,19 @@ if ('serviceWorker' in navigator) {
       enemyInterval = Math.max(0.25, 1.5 / endlessDiff);
     }
     bullets = []; enemies = []; enemyBullets = []; particles = []; coinItems = []; minionBullets = [];
+    p2PvpBullets = []; // PvP模式子弹清空
     drones = []; droneSpawnTimer = 0;
     currentBoss = null;
     enemyTimer = 0;
     // 无尽模式使用波数计算敌人生成间隔，其他模式使用关卡
     if (gameMode !== 'endless') {
-      const diffMult = 1 + Math.log(level) * 0.8; // 对数增长，10000关约8.4倍
-      enemyInterval = Math.max(0.25, 1.5 / diffMult);
+      if (pvpMode) {
+        // PvP对战：不刷新敌人，纯粹玩家对战
+        enemyInterval = 99999;
+      } else {
+        const diffMult = 1 + Math.log(level) * 0.8; // 对数增长，10000关约8.4倍
+        enemyInterval = Math.max(0.25, 1.5 / diffMult);
+      }
     }
     if (gameMode === 'multi') {
       player.x = W/3 - player.width/2;
@@ -4620,8 +4632,14 @@ if ('serviceWorker' in navigator) {
         player2.img = new Image();
       }
       player2.img.src = 'https://aka.doubaocdn.com/s/rJgMGTne8c'; // 暗夜猎手作为P2形象
-      player2.x = W*2/3 - player2.width/2;
-      player2.y = H - player2.height - 90;
+      if (pvpMode) {
+        // PvP对战：P2（蓝色战机）在顶部，P1在底部，互相射击
+        player2.x = W/2 - player2.width/2;
+        player2.y = 60;
+      } else {
+        player2.x = W*2/3 - player2.width/2;
+        player2.y = H - player2.height - 90;
+      }
       player2.cooldown = 0;
       player2.invincible = 1.5;
     } else {
@@ -4648,6 +4666,8 @@ if ('serviceWorker' in navigator) {
     }
     updateHUD();
     showLevelToast();
+    // PvP对战：开局狂暴蓄力满，随时可释放（PvP无敌人可击杀，无法靠击杀蓄力）
+    if (pvpMode) { chargeValue = chargeMax; updateHUD(); }
     // Boss关生成Boss
     if (isBossLevel(level)) {
       setTimeout(() => { if (gameState === STATE.PLAYING) spawnBoss(); }, 1500);
@@ -4679,7 +4699,10 @@ if ('serviceWorker' in navigator) {
     document.getElementById('expBarFill').style.width = expPct + '%';
     document.getElementById('expBarText').textContent = '经验 ' + levelExp + '/' + expToNextLevel;
     // 无尽模式显示波数和时间，通关模式显示关卡
-    if (gameMode === 'endless') {
+    if (pvpMode) {
+      document.getElementById('levelText').textContent = 'PvP';
+      document.querySelector('.level-badge span:last-child').textContent = '对战';
+    } else if (gameMode === 'endless') {
       const mins = Math.floor(endlessTime / 60);
       const secs = Math.floor(endlessTime % 60);
       document.getElementById('levelText').textContent = '第' + endlessWave + '波';
@@ -4688,11 +4711,19 @@ if ('serviceWorker' in navigator) {
       document.getElementById('levelText').textContent = level;
     }
     document.getElementById('bombCount').textContent = bombs;
+    // PvP对战：隐藏击杀进度，显示对战提示
     const isBoss = isBossLevel(level) && currentBoss;
-    document.getElementById('normalProgress').style.display = isBoss || gameMode === 'endless' ? 'none' : 'block';
-    document.getElementById('bossHpBar').classList.toggle('show', !!isBoss);
+    if (pvpMode) {
+      document.getElementById('normalProgress').style.display = 'none';
+      document.getElementById('bossHpBar').classList.remove('show');
+    } else {
+      document.getElementById('normalProgress').style.display = isBoss || gameMode === 'endless' ? 'none' : 'block';
+      document.getElementById('bossHpBar').classList.toggle('show', !!isBoss);
+    }
     // 无尽模式显示波数和时间
-    if (gameMode === 'endless') {
+    if (pvpMode) {
+      // PvP不显示关卡进度
+    } else if (gameMode === 'endless') {
       const mins = Math.floor(endlessTime / 60);
       const secs = Math.floor(endlessTime % 60);
       document.getElementById('progressBar').style.width = Math.min(100, (endlessTime % 30) / 30 * 100) + '%';
@@ -4903,47 +4934,50 @@ if ('serviceWorker' in navigator) {
         playHitSound();
       } catch(e) {}
     }
-    let dmg = getBulletDamage();
+    let dmg = pvpMode ? 1 : getBulletDamage();
     let bw = equippedArtifact === 'bigbullet' ? 10 : 6;
     let bh = equippedArtifact === 'bigbullet' ? 22 : 16;
     let pierce = equippedArtifact === 'pierce';
-    // 特殊武器效果
-    const weaponInfo = activeWeapon ? WEAPON_TYPES.find(w => w.id === activeWeapon) : null;
-    const weaponColor = weaponInfo ? weaponInfo.color : '#ffd166';
-    if (activeWeapon === 'heavy') {
-      // 重型武器：大子弹，伤害翻倍
-      dmg *= 2;
-      bw = 14; bh = 28;
-    }
-    if (activeWeapon === 'pierce') {
-      // 穿透武器：子弹穿透敌人
-      pierce = true;
-    }
-    if (activeWeapon === 'frost') {
-      // 冰霜武器：冰冻敌人
-      dmg *= 1.2;
-    }
-    if (activeWeapon === 'poison') {
-      // 剧毒武器：持续毒伤
-      dmg *= 1.5;
-    }
-    if (activeWeapon === 'thunder') {
-      // 雷电武器：连锁闪电
-      dmg *= 1.3;
-    }
-    if (activeWeapon === 'laser') {
-      // 激光武器：高伤害
-      dmg *= 2.5;
-      bw = 8; bh = 30;
-    }
-    if (activeWeapon === 'missile') {
-      // 导弹武器：追踪
-      dmg *= 1.8;
+    // PvP对战：禁用强化伤害，保持公平
+    if (!pvpMode) {
+      // 特殊武器效果
+      const weaponInfo = activeWeapon ? WEAPON_TYPES.find(w => w.id === activeWeapon) : null;
+      const weaponColor = weaponInfo ? weaponInfo.color : '#ffd166';
+      if (activeWeapon === 'heavy') {
+        // 重型武器：大子弹，伤害翻倍
+        dmg *= 2;
+        bw = 14; bh = 28;
+      }
+      if (activeWeapon === 'pierce') {
+        // 穿透武器：子弹穿透敌人
+        pierce = true;
+      }
+      if (activeWeapon === 'frost') {
+        // 冰霜武器：冰冻敌人
+        dmg *= 1.2;
+      }
+      if (activeWeapon === 'poison') {
+        // 剧毒武器：持续毒伤
+        dmg *= 1.5;
+      }
+      if (activeWeapon === 'thunder') {
+        // 雷电武器：连锁闪电
+        dmg *= 1.3;
+      }
+      if (activeWeapon === 'laser') {
+        // 激光武器：高伤害
+        dmg *= 2.5;
+        bw = 8; bh = 30;
+      }
+      if (activeWeapon === 'missile') {
+        // 导弹武器：追踪
+        dmg *= 1.8;
+      }
     }
     // 计算弹道数量（基础1发 + 多弹道等级 + 狂暴+1 + 散射武器额外）
-    let bulletCount = 1 + multiShotLevel;
+    let bulletCount = 1 + (pvpMode ? 0 : multiShotLevel);
     if (rageActive) bulletCount += 1;
-    if (activeWeapon === 'scatter') bulletCount = 5;
+    if (!pvpMode && activeWeapon === 'scatter') bulletCount = 5;
     bulletCount = Math.min(6, bulletCount); // 最多6发
     // 发射多弹道
     if (bulletCount > 1) {
@@ -4968,8 +5002,20 @@ if ('serviceWorker' in navigator) {
     if (rageActive) r *= 0.55;
     r = Math.max(0.02, r);
     player2.cooldown = r;
-    const dmg = getBulletDamage();
+    const dmg = pvpMode ? 1 : getBulletDamage();
     const bw = 6, bh = 16;
+    if (pvpMode) {
+      // PvP对战：P2子弹向下射击（打底部P1），蓝色弹
+      const cnt = rageActive ? 2 : 1;
+      for (let i = 0; i < cnt; i++) {
+        const off = (i - (cnt-1)/2) * 10;
+        p2PvpBullets.push({ x:player2.x+player2.width/2-bw/2+off, y:player2.y+player2.height, w:bw, h:bh, speed:460, dmg:dmg, angle:Math.PI/2, color:'#74b9ff' });
+      }
+      for (let i = 0; i < 3; i++) {
+        particles.push({ x:player2.x+player2.width/2, y:player2.y+player2.height-5, vx:(Math.random()-0.5)*60, vy:Math.random()*100+50, life:0.3, maxLife:0.3, size:Math.random()*3+1, color:'#74b9ff' });
+      }
+      return;
+    }
     if (rageActive) {
       // 狂暴模式：双弹道
       bullets.push({ x:player2.x+player2.width/2-bw/2-8, y:player2.y, w:bw, h:bh, speed:520, dmg:dmg, pierce:false, angle:-0.05 });
@@ -5085,6 +5131,8 @@ if ('serviceWorker' in navigator) {
     killsThisLevel += enemies.length;
     enemies = [];
     enemyBullets = [];
+    // PvP对战：P1炸弹清除P2的子弹（防御）
+    if (pvpMode) p2PvpBullets = [];
     if (currentBoss) {
       currentBoss.hp -= 20;
       createExplosion(currentBoss.x+currentBoss.w/2, currentBoss.y+currentBoss.h/2, currentBoss.color, 30);
@@ -5106,6 +5154,8 @@ if ('serviceWorker' in navigator) {
     killsThisLevel += enemies.length;
     enemies = [];
     enemyBullets = [];
+    // PvP对战：P2炸弹清除P1的子弹（防御）
+    if (pvpMode) bullets = [];
     if (currentBoss) {
       currentBoss.hp -= 20;
       createExplosion(currentBoss.x+currentBoss.w/2, currentBoss.y+currentBoss.h/2, currentBoss.color, 30);
@@ -5301,7 +5351,12 @@ if ('serviceWorker' in navigator) {
     if (keys.up) player.y -= spd*dt;
     if (keys.down) player.y += spd*dt;
     player.x = Math.max(0, Math.min(W-player.width, player.x));
-    player.y = Math.max(40, Math.min(H-120, player.y));
+    if (pvpMode) {
+      // PvP对战：P1（金色战机）限制在底部区域
+      player.y = Math.max(H*0.55, Math.min(H-120, player.y));
+    } else {
+      player.y = Math.max(40, Math.min(H-120, player.y));
+    }
     player.cooldown -= dt;
     if (keys.fire) fireBullet();
     if (player.invincible > 0) player.invincible -= dt;
@@ -5359,7 +5414,15 @@ if ('serviceWorker' in navigator) {
         p1AIDodgeTarget.y = Math.max(50, Math.min(H-140, p1AIDodgeTarget.y));
       } else if (p1AIStateTimer <= 0) {
         // 定期重新评估状态
-        if (enemies.length > 0) {
+        if (pvpMode && player2) {
+          // PvP对战：攻击P2（顶部蓝色战机）
+          p1AIState = AI_STATE.ATTACK;
+          p1AIStateTimer = 1 + Math.random() * 2;
+          p1AITarget = { x: player2.x, y: player2.y, w: player2.width, h: player2.height };
+          p1AIRandomOffsetX = (Math.random() - 0.5) * 40;
+          p1AIRandomOffsetY = (Math.random() - 0.5) * 20;
+          p1AIShootInterval = 0.1 + Math.random() * 0.15;
+        } else if (enemies.length > 0) {
           p1AIState = AI_STATE.ATTACK;
           p1AIStateTimer = 1 + Math.random() * 2;
         } else {
@@ -5372,23 +5435,31 @@ if ('serviceWorker' in navigator) {
       }
       
       // 目标重新评估（进攻状态下）
-      if (p1AIReevalTimer <= 0 && enemies.length > 0) {
+      if (p1AIReevalTimer <= 0 && (enemies.length > 0 || (pvpMode && player2))) {
         p1AIReevalTimer = 0.8 + Math.random() * 1.2;
-        // 选择目标：优先左边的敌人，加入随机性
-        let bestEnemy = null, bestScore = -Infinity;
-        for (const e of enemies) {
-          const dx = e.x - player.x, dy = e.y - player.y;
-          const dist = Math.sqrt(dx*dx + dy*dy);
-          // 分数：距离近+左边优先+随机因素
-          const score = -dist * 0.5 - e.x * 0.2 + Math.random() * 50;
-          if (score > bestScore) { bestScore = score; bestEnemy = e; }
+        if (pvpMode && player2) {
+          // PvP：始终瞄准P2（顶部蓝色战机）
+          p1AITarget = { x: player2.x, y: player2.y, w: player2.width, h: player2.height };
+          p1AIRandomOffsetX = (Math.random() - 0.5) * 40;
+          p1AIRandomOffsetY = (Math.random() - 0.5) * 20;
+          p1AIShootInterval = 0.1 + Math.random() * 0.18;
+        } else {
+          // 选择目标：优先左边的敌人，加入随机性
+          let bestEnemy = null, bestScore = -Infinity;
+          for (const e of enemies) {
+            const dx = e.x - player.x, dy = e.y - player.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            // 分数：距离近+左边优先+随机因素
+            const score = -dist * 0.5 - e.x * 0.2 + Math.random() * 50;
+            if (score > bestScore) { bestScore = score; bestEnemy = e; }
+          }
+          p1AITarget = bestEnemy;
+          // 随机偏移（避免完全重复的移动轨迹）
+          p1AIRandomOffsetX = (Math.random() - 0.5) * 60;
+          p1AIRandomOffsetY = (Math.random() - 0.5) * 40;
+          // 随机射击间隔
+          p1AIShootInterval = 0.1 + Math.random() * 0.2;
         }
-        p1AITarget = bestEnemy;
-        // 随机偏移（避免完全重复的移动轨迹）
-        p1AIRandomOffsetX = (Math.random() - 0.5) * 60;
-        p1AIRandomOffsetY = (Math.random() - 0.5) * 40;
-        // 随机射击间隔
-        p1AIShootInterval = 0.1 + Math.random() * 0.2;
       }
       
       // 根据状态执行移动
@@ -5399,9 +5470,16 @@ if ('serviceWorker' in navigator) {
         targetX = p1AIDodgeTarget.x;
         targetY = p1AIDodgeTarget.y;
       } else if (p1AIState === AI_STATE.ATTACK && p1AITarget) {
-        // 进攻：保持在敌人下方偏左，加入随机偏移
-        targetX = p1AITarget.x + p1AITarget.w/2 - player.width/2 - 40 + p1AIRandomOffsetX;
-        targetY = Math.min(H * 0.65, p1AITarget.y + 120 + p1AIRandomOffsetY);
+        if (pvpMode) {
+          // PvP对战：横向对准P2，保持底部区域游走射击
+          targetX = player2.x + player2.width/2 - player.width/2 + p1AIRandomOffsetX;
+          targetY = H - 130 - Math.sin(Date.now()/500) * 30 + p1AIRandomOffsetY;
+          targetY = Math.max(H*0.55, Math.min(H-130, targetY));
+        } else {
+          // 进攻：保持在敌人下方偏左，加入随机偏移
+          targetX = p1AITarget.x + p1AITarget.w/2 - player.width/2 - 40 + p1AIRandomOffsetX;
+          targetY = Math.min(H * 0.65, p1AITarget.y + 120 + p1AIRandomOffsetY);
+        }
       } else {
         // 巡逻
         targetX = p1AIDodgeTarget.x;
@@ -5430,7 +5508,11 @@ if ('serviceWorker' in navigator) {
       
       // 边界限制（带缓冲，避免抖动）
       player.x = Math.max(5, Math.min(W-player.width-5, player.x));
-      player.y = Math.max(45, Math.min(H-125, player.y));
+      if (pvpMode) {
+        player.y = Math.max(H*0.55, Math.min(H-125, player.y));
+      } else {
+        player.y = Math.max(45, Math.min(H-125, player.y));
+      }
       
       // 射击节奏（不是每帧都射）
       if (p1AIShootTimer <= 0) {
@@ -5467,6 +5549,18 @@ if ('serviceWorker' in navigator) {
             }
           }
         }
+        // PvP对战：P2 AI要躲避P1（底部金色战机）向上射出的子弹
+        if (pvpMode) {
+          for (const b of bullets) {
+            const dx = b.x - (player2.x + player2.width/2);
+            const dy = b.y - (player2.y + player2.height/2);
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist < 110) {
+              dangerLevel2 += (110 - dist) / 110;
+              dangerX2 += dx; dangerY2 += dy;
+            }
+          }
+        }
         // 检测附近敌人（太近需要躲避）
         for (const e of enemies) {
           const dx = e.x - player2.x, dy = e.y - player2.y;
@@ -5484,7 +5578,15 @@ if ('serviceWorker' in navigator) {
           p2AIDodgeTarget.x = Math.max(20, Math.min(W-player2.width-20, p2AIDodgeTarget.x));
           p2AIDodgeTarget.y = Math.max(50, Math.min(H-140, p2AIDodgeTarget.y));
         } else if (p2AIStateTimer <= 0) {
-          if (enemies.length > 0) {
+          if (pvpMode) {
+            // PvP对战：攻击P1（底部金色战机）
+            p2AIState = AI_STATE.ATTACK;
+            p2AIStateTimer = 1 + Math.random() * 2;
+            p2AITarget = { x: player.x, y: player.y, w: player.width, h: player.height };
+            p2AIRandomOffsetX = (Math.random() - 0.5) * 40;
+            p2AIRandomOffsetY = (Math.random() - 0.5) * 20;
+            p2AIShootInterval = 0.12 + Math.random() * 0.15;
+          } else if (enemies.length > 0) {
             p2AIState = AI_STATE.ATTACK;
             p2AIStateTimer = 1 + Math.random() * 2;
           } else {
@@ -5496,20 +5598,28 @@ if ('serviceWorker' in navigator) {
         }
         
         // 目标重新评估（进攻状态下）
-        if (p2AIReevalTimer <= 0 && enemies.length > 0) {
+        if (p2AIReevalTimer <= 0 && (enemies.length > 0 || pvpMode)) {
           p2AIReevalTimer = 0.8 + Math.random() * 1.2;
-          let bestEnemy2 = null, bestScore2 = -Infinity;
-          for (const e of enemies) {
-            const dx = e.x - player2.x, dy = e.y - player2.y;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-            // P2优先右边的敌人，加入随机性
-            const score = -dist * 0.5 - (W - e.x) * 0.2 + Math.random() * 50;
-            if (score > bestScore2) { bestScore2 = score; bestEnemy2 = e; }
+          if (pvpMode) {
+            // PvP：始终瞄准P1（底部金色战机）
+            p2AITarget = { x: player.x, y: player.y, w: player.width, h: player.height };
+            p2AIRandomOffsetX = (Math.random() - 0.5) * 40;
+            p2AIRandomOffsetY = (Math.random() - 0.5) * 20;
+            p2AIShootInterval = 0.1 + Math.random() * 0.18;
+          } else {
+            let bestEnemy2 = null, bestScore2 = -Infinity;
+            for (const e of enemies) {
+              const dx = e.x - player2.x, dy = e.y - player2.y;
+              const dist = Math.sqrt(dx*dx + dy*dy);
+              // P2优先右边的敌人，加入随机性
+              const score = -dist * 0.5 - (W - e.x) * 0.2 + Math.random() * 50;
+              if (score > bestScore2) { bestScore2 = score; bestEnemy2 = e; }
+            }
+            p2AITarget = bestEnemy2;
+            p2AIRandomOffsetX = (Math.random() - 0.5) * 60;
+            p2AIRandomOffsetY = (Math.random() - 0.5) * 40;
+            p2AIShootInterval = 0.1 + Math.random() * 0.2;
           }
-          p2AITarget = bestEnemy2;
-          p2AIRandomOffsetX = (Math.random() - 0.5) * 60;
-          p2AIRandomOffsetY = (Math.random() - 0.5) * 40;
-          p2AIShootInterval = 0.1 + Math.random() * 0.2;
         }
         
         // 根据状态执行移动
@@ -5519,8 +5629,15 @@ if ('serviceWorker' in navigator) {
           targetX2 = p2AIDodgeTarget.x;
           targetY2 = p2AIDodgeTarget.y;
         } else if (p2AIState === AI_STATE.ATTACK && p2AITarget) {
-          targetX2 = p2AITarget.x + p2AITarget.w/2 - player2.width/2 + 40 + p2AIRandomOffsetX;
-          targetY2 = Math.min(H * 0.65, p2AITarget.y + 120 + p2AIRandomOffsetY);
+          if (pvpMode) {
+            // PvP对战：横向对准P1，保持顶部区域游走射击
+            targetX2 = player.x + player.width/2 - player2.width/2 + p2AIRandomOffsetX;
+            targetY2 = 90 + Math.sin(Date.now()/500) * 30 + p2AIRandomOffsetY;
+            targetY2 = Math.max(50, Math.min(H*0.35, targetY2));
+          } else {
+            targetX2 = p2AITarget.x + p2AITarget.w/2 - player2.width/2 + 40 + p2AIRandomOffsetX;
+            targetY2 = Math.min(H * 0.65, p2AITarget.y + 120 + p2AIRandomOffsetY);
+          }
         } else {
           targetX2 = p2AIDodgeTarget.x;
           targetY2 = p2AIDodgeTarget.y;
@@ -5564,7 +5681,12 @@ if ('serviceWorker' in navigator) {
       }
 
       player2.x = Math.max(0, Math.min(W-player2.width, player2.x));
-      player2.y = Math.max(40, Math.min(H-120, player2.y));
+      if (pvpMode) {
+        // PvP对战：P2（蓝色）限制在顶部区域
+        player2.y = Math.max(40, Math.min(H*0.45, player2.y));
+      } else {
+        player2.y = Math.max(40, Math.min(H-120, player2.y));
+      }
       player2.cooldown -= dt;
       if (keys2.fire && !p2AIActive) fireBullet2();
       if (player2.invincible > 0) player2.invincible -= dt;
@@ -5685,6 +5807,13 @@ if ('serviceWorker' in navigator) {
 
     // 敌方子弹
     enemyBullets = enemyBullets.filter(b => {
+      b.x += Math.cos(b.angle)*b.speed*dt;
+      b.y += Math.sin(b.angle)*b.speed*dt;
+      return b.y < H+20 && b.y > -20 && b.x > -20 && b.x < W+20;
+    });
+
+    // PvP对战：P2（顶部蓝色战机）子弹向下移动
+    p2PvpBullets = p2PvpBullets.filter(b => {
       b.x += Math.cos(b.angle)*b.speed*dt;
       b.y += Math.sin(b.angle)*b.speed*dt;
       return b.y < H+20 && b.y > -20 && b.x > -20 && b.x < W+20;
@@ -5820,7 +5949,7 @@ if ('serviceWorker' in navigator) {
       commanderSpawnTimer += dt;
       const commanderCount = enemies.filter(e => e.isCommander).length;
       const commanderInterval = gameMode === 'endless' ? Math.max(12, 25 - endlessWave) : Math.max(15, 25 - level * 0.1);
-      if (commanderSpawnTimer >= commanderInterval && commanderCount < 2 && !isBossLevel(level)) {
+      if (commanderSpawnTimer >= commanderInterval && commanderCount < 2 && !isBossLevel(level) && !pvpMode) {
         commanderSpawnTimer = 0;
         spawnCommander();
       }
@@ -6055,6 +6184,24 @@ if ('serviceWorker' in navigator) {
         }
       }
       if (hit) continue;
+      // PvP对战：P1（金色战机）子弹打P2（顶部蓝色战机）
+      if (pvpMode && player2) {
+        const ph2 = { x:player2.x+6, y:player2.y+6, w:player2.width-12, h:player2.height-12 };
+        if (rectCollide(bullets[i], ph2)) {
+          if (player2.invincible <= 0) {
+            lives2--;
+            SFX.hurt();
+            player2.invincible = 1.5;
+            createExplosion(player2.x+player2.width/2, player2.y+player2.height/2, '#a55eea', 14);
+            if (typeof screenShake === 'undefined') { screenShake = 0; }
+            screenShake = 4;
+            updateHUD();
+            if (lives2 <= 0) { gameOver(); return; }
+          }
+          bullets.splice(i,1);
+          continue;
+        }
+      }
       // 子弹打Boss
       if (currentBoss && rectCollide(bullets[i], currentBoss)) {
         currentBoss.hp -= bullets[i].dmg;
@@ -6093,6 +6240,21 @@ if ('serviceWorker' in navigator) {
           enemyBullets.splice(i,1);
           updateHUD();
           if (lives <= 0) gameOver();
+          break;
+        }
+      }
+      // PvP对战：P2（顶部蓝色战机）子弹打P1（金色战机）
+      for (let i = p2PvpBullets.length-1; i >= 0; i--) {
+        if (rectCollide(ph, p2PvpBullets[i])) {
+          if (hasShield) { hasShield = false; SFX.hurt(); }
+          else { lives--; SFX.hurt(); }
+          player.invincible = 1.5;
+          createExplosion(p2PvpBullets[i].x, p2PvpBullets[i].y, '#74b9ff', 12);
+          if (typeof screenShake === 'undefined') { screenShake = 0; }
+          screenShake = 5;
+          p2PvpBullets.splice(i,1);
+          updateHUD();
+          if (lives <= 0) { gameOver(); return; }
           break;
         }
       }
@@ -6444,6 +6606,14 @@ if ('serviceWorker' in navigator) {
     enemyBullets.forEach(b => {
       ctx.fillStyle = '#ff4757';
       ctx.shadowColor = '#ff4757'; ctx.shadowBlur = 8;
+      ctx.beginPath(); ctx.arc(b.x+b.w/2, b.y+b.h/2, b.w/2, 0, Math.PI*2); ctx.fill();
+      ctx.shadowBlur = 0;
+    });
+
+    // PvP对战：P2子弹（蓝色，向下）
+    p2PvpBullets.forEach(b => {
+      ctx.fillStyle = '#74b9ff';
+      ctx.shadowColor = '#74b9ff'; ctx.shadowBlur = 10;
       ctx.beginPath(); ctx.arc(b.x+b.w/2, b.y+b.h/2, b.w/2, 0, Math.PI*2); ctx.fill();
       ctx.shadowBlur = 0;
     });
@@ -8427,14 +8597,30 @@ if ('serviceWorker' in navigator) {
     if (isNew) highScore = score;
     totalCoins += coins;
     saveData();
-    // 上传排行榜成绩到云端
+    // 上传排行榜成绩到云端（PvP对战不上传击杀榜，避免污染）
     const finalLevel = gameMode === 'endless' ? endlessWave : level;
-    cloudUploadScore(score, finalLevel, totalKills);
+    if (!pvpMode) cloudUploadScore(score, finalLevel, totalKills);
     document.getElementById('finalScore').textContent = score;
     document.getElementById('finalLevel').textContent = gameMode === 'endless' ? endlessWave : level;
     document.getElementById('finalCoins').textContent = coins;
     // 根据游戏模式修改标题和到达信息
-    if (gameMode === 'multi') {
+    if (pvpMode) {
+      // PvP对战结束：host是P1（金色战机，底部）
+      const p1Win = lives > 0 && lives2 <= 0;
+      document.getElementById('gameOverTitle').textContent = p1Win ? '🏆 PvP 胜利！' : '💀 PvP 失败';
+      document.getElementById('finalLevelLabel').innerHTML = p1Win
+        ? '你（金色战机）击落了对手 3 次，赢得对战！'
+        : '你（金色战机）被对手击落了！再接再厉！';
+      // 通知客户端（P2）胜负结果
+      try { if (netWs && netRole === 'host') netSend({ type: 'pvp_result', win: p1Win }); } catch(e){}
+      // 胜利奖励金币
+      if (p1Win) {
+        coins += 500;
+        totalCoins += 500;
+        saveData();
+        document.getElementById('finalCoins').textContent = coins;
+      }
+    } else if (gameMode === 'multi') {
       document.getElementById('gameOverTitle').textContent = '联机合作结束';
       document.getElementById('finalLevelLabel').innerHTML = '到达：第 <span id="finalLevel">' + level + '</span> 关 · 双人并肩作战';
     } else if (gameMode === 'endless') {
@@ -8985,10 +9171,15 @@ if ('serviceWorker' in navigator) {
     aiTeammateMode = true;
     startGame();
   }
-  function startMatch() {
+  function startMatch(mode) {
+    pvpMode = (mode === 'pvp');
     if (netWs) { try { netWs.close(); } catch(e){} netWs = null; netConnected = false; }
     document.getElementById('modeSelectScreen').classList.add('hidden');
     document.getElementById('matchScreen').classList.remove('hidden');
+    const titleEl = document.querySelector('#matchScreen .mode-title');
+    if (titleEl) titleEl.textContent = pvpMode ? '⚔️ PvP 对战匹配' : '🎯 匹配联机';
+    const subEl = document.querySelector('#matchScreen .mode-subtitle');
+    if (subEl) subEl.textContent = pvpMode ? '自动匹配对手，弹幕对轰，击落对方3次获胜！' : '自动寻找联机队友';
     updateMatchStatus('正在连接服务器...');
     matchCountdownValue = 60;
     updateMatchCountdown();
@@ -9008,7 +9199,7 @@ if ('serviceWorker' in navigator) {
     netConnect(serverUrl).then(() => {
       updateMatchStatus('正在匹配中...');
       const name = currentUsername || playerName || '玩家1';
-      netSend({ type: 'match', name: name });
+      netSend({ type: 'match', name: name, mode: pvpMode ? 'pvp' : 'coop' });
     }).catch((e) => {
       updateMatchStatus('❌ 连接失败：' + e.message + '，1秒后直接AI陪玩');
       setTimeout(startMatchAI, 1000);
@@ -9036,6 +9227,8 @@ if ('serviceWorker' in navigator) {
   let netClientLoopId = null;  // 客户端渲染循环 ID
   let netClientKeyState = {};  // 客户端按键状态（上一次发送）
   let netFrameCount = 0;       // 主机广播帧计数
+  let pvpMode = false;         // PvP对战模式（联机时两人互相对战）
+  let p2PvpBullets = [];       // PvP模式：P2（顶部）向下发射的子弹，打P1
 
   function updateNetStatus(text) {
     const el = document.getElementById('netStatus');
@@ -9103,6 +9296,25 @@ if ('serviceWorker' in navigator) {
     if (msg.type === 'state') {
       netRemoteState = msg.data;
     }
+    // PvP对战结果（客户端P2视角，host判定胜负后广播）
+    if (msg.type === 'pvp_result') {
+      const clientWin = !msg.win; // host的win表示P1（金色）胜，P2取反
+      const st = netRemoteState;
+      netStopClient();
+      document.getElementById('hud').style.display = 'none';
+      document.getElementById('pauseBtn').style.display = 'none';
+      document.getElementById('rageBtn').style.display = 'none';
+      document.getElementById('gameOverTitle').textContent = clientWin ? '🏆 PvP 胜利！' : '💀 PvP 失败';
+      document.getElementById('finalLevelLabel').innerHTML = clientWin
+        ? '你（蓝色战机）击落了对手 3 次，赢得对战！'
+        : '你（蓝色战机）被对手击落了！再接再厉！';
+      document.getElementById('finalScore').textContent = st ? st.score : 0;
+      document.getElementById('finalLevel').textContent = st ? st.level : 1;
+      document.getElementById('finalCoins').textContent = st ? st.coins : 0;
+      document.getElementById('finalHighScore').textContent = highScore;
+      document.getElementById('newRecord').style.display = 'none';
+      document.getElementById('gameOverScreen').classList.remove('hidden');
+    }
     if (msg.type === 'op') {
       // 主机收到客户端操作
       netApplyClientOp(msg.data);
@@ -9124,18 +9336,19 @@ if ('serviceWorker' in navigator) {
       matchTimer = null;
       document.getElementById('matchScreen').classList.add('hidden');
       netRoomCode = msg.code;
+      pvpMode = (msg.mode === 'pvp');
       if (msg.role === 'host') {
         netRole = 'host';
         gameMode = 'multi';
         aiTeammateMode = false;
-        updateNetStatus('🎉 已匹配到 ' + msg.opponent + '！开始联机！');
-        netLog('matched as host, room', msg.code);
+        updateNetStatus(pvpMode ? '⚔️ 已匹配到 ' + msg.opponent + '！PvP对战开始！' : '🎉 已匹配到 ' + msg.opponent + '！开始联机！');
+        netLog('matched as host, room', msg.code, 'pvp=', pvpMode);
         startGame(); // 主机跑完整游戏
       } else {
         netRole = 'client';
         gameMode = 'multi';
         aiTeammateMode = false;
-        netLog('matched as client, room', msg.code);
+        netLog('matched as client, room', msg.code, 'pvp=', pvpMode);
         netStartClient(); // 客户端模式
       }
     }
@@ -9183,7 +9396,10 @@ if ('serviceWorker' in navigator) {
       gameState: gameState, killsThisLevel: killsThisLevel, killsRequired: killsRequired,
       currentSkin: currentSkin,
       endlessWave: endlessWave, endlessTime: endlessTime,
-      bgOffsetY: bgOffsetY
+      bgOffsetY: bgOffsetY,
+      // PvP对战数据同步
+      pvpMode: pvpMode,
+      p2PvpBullets: p2PvpBullets.slice(0, 20).map(b => ({ x:b.x, y:b.y, w:b.w, h:b.h }))
     };
   }
   // 主机每5帧广播一次状态（降低频率减少卡顿，原来每2帧太频繁）
@@ -9262,7 +9478,11 @@ if ('serviceWorker' in navigator) {
       const tip = document.createElement('div');
       tip.id = 'netClientTip';
       tip.style.cssText = 'position:fixed;top:15%;left:50%;transform:translateX(-50%);z-index:99999;background:rgba(10,10,30,0.92);border:1px solid #70a1ff;border-radius:12px;padding:12px 18px;color:#fff;font-size:14px;line-height:1.7;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.5);pointer-events:none;max-width:86vw;';
-      tip.innerHTML = '<b style="color:#70a1ff;">🛩️ 你控制蓝色战机（P2）</b><br>📱 手机：<b>左半屏摇杆移动</b>，<b>右半屏/射击键攻击</b>，💣炸弹 🌀狂暴<br>⌨️ 电脑：<b>方向键</b>移动，<b>数字1</b>射击，<b>N</b>炸弹，<b>M</b>狂暴';
+      if (pvpMode) {
+        tip.innerHTML = '<b style="color:#74b9ff;">⚔️ PvP对战 · 你控制蓝色战机（P2）在顶部</b><br>📱 手机：<b>左半屏摇杆移动</b>，<b>右半屏/射击键攻击</b>，向下射击金色战机！<br>⌨️ 电脑：<b>方向键</b>移动，<b>数字1</b>射击，<b>N</b>炸弹，<b>M</b>狂暴<br><span style="color:#ff6b81;">击落对手3次获胜！</span>';
+      } else {
+        tip.innerHTML = '<b style="color:#70a1ff;">🛩️ 你控制蓝色战机（P2）</b><br>📱 手机：<b>左半屏摇杆移动</b>，<b>右半屏/射击键攻击</b>，💣炸弹 🌀狂暴<br>⌨️ 电脑：<b>方向键</b>移动，<b>数字1</b>射击，<b>N</b>炸弹，<b>M</b>狂暴';
+      }
       document.body.appendChild(tip);
       setTimeout(() => { if (tip.parentNode) tip.parentNode.removeChild(tip); }, 5000);
     } catch(e) {}
@@ -9390,6 +9610,17 @@ if ('serviceWorker' in navigator) {
       ctx.fillStyle = '#ff4757'; ctx.shadowColor = '#ff4757'; ctx.shadowBlur = 8;
       ctx.beginPath(); ctx.arc(b.x + b.w/2, b.y + b.h/2, b.w/2, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 0;
     });
+    // PvP对战：P2子弹（蓝色，向下）
+    (st.p2PvpBullets || []).forEach(b => {
+      ctx.fillStyle = '#74b9ff'; ctx.shadowColor = '#74b9ff'; ctx.shadowBlur = 10;
+      ctx.beginPath(); ctx.arc(b.x + b.w/2, b.y + b.h/2, b.w/2, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 0;
+    });
+    // PvP对战横幅
+    if (st.pvpMode) {
+      ctx.fillStyle = 'rgba(255,80,120,0.15)'; ctx.fillRect(0, 0, W, 4);
+      ctx.fillStyle = '#ff6b81'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('⚔️ PvP 对战 · 你(蓝色 P2)在顶部', W/2, 22);
+    }
     // 敌人
     (st.enemies || []).forEach(e => {
       ctx.save();
@@ -11190,7 +11421,10 @@ if ('serviceWorker' in navigator) {
   });
   // 匹配联机
   document.getElementById('matchModeBtn').addEventListener('click', () => {
-    startMatch();
+    startMatch('coop');
+  });
+  document.getElementById('pvpModeBtn').addEventListener('click', () => {
+    startMatch('pvp');
   });
   document.getElementById('matchCancelBtn').addEventListener('click', () => {
     cancelMatch();
