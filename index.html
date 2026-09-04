@@ -2325,10 +2325,25 @@ img, canvas, [class*="img"], [class*="skin"], [class*="tower"] {
 </div>
 
 <script>
-// 注册 Service Worker（PWA 离线支持）
+// 注册 Service Worker（PWA 离线支持 + 强制更新）
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(reg => {
+      // 清除旧缓存，确保加载到最新版
+      try { caches.keys().then(keys => keys.forEach(k => caches.delete(k))); } catch(e) {}
+      // 有等待中的新 SW 时立即激活
+      if (reg.waiting) reg.waiting.postMessage('SKIP_WAITING');
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        if (newWorker) {
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              newWorker.postMessage('SKIP_WAITING');
+            }
+          });
+        }
+      });
+    }).catch(() => {});
   });
 }
 (function() {
@@ -2366,7 +2381,7 @@ if ('serviceWorker' in navigator) {
   }
 
   // ===== 自动更新检查 =====
-  const CURRENT_VERSION = '3.27';
+  const CURRENT_VERSION = '3.28';
   // 自动获取当前服务器地址（优先使用当前页面地址，失败时使用默认地址）
   function getUpdateServerUrl() {
     try {
