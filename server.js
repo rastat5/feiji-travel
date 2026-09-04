@@ -302,6 +302,28 @@ function send(ws, obj) {
   }
 }
 
+// ===== 匹配联机队列 =====
+const matchQueue = []; // [{ ws, name, createdAt }]
+
+function removeFromQueue(ws) {
+  const idx = matchQueue.findIndex(q => q.ws === ws);
+  if (idx >= 0) { matchQueue.splice(idx, 1); return true; }
+  return false;
+}
+function tryMatchPair() {
+  while (matchQueue.length >= 2) {
+    const p1 = matchQueue.shift();
+    const p2 = matchQueue.shift();
+    const code = genRoomCode();
+    rooms.set(code, { host: p1.ws, guest: p2.ws, hostName: p1.name, guestName: p2.name, createdAt: Date.now() });
+    p1.ws.roomCode = code; p1.ws.isHost = true;
+    p2.ws.roomCode = code; p2.ws.isHost = false;
+    send(p1.ws, { type: 'matched', code: code, role: 'host', opponent: p2.name });
+    send(p2.ws, { type: 'matched', code: code, role: 'client', opponent: p1.name });
+    console.log('[' + new Date().toLocaleTimeString() + '] 🎯 匹配成功 ' + code + ' (' + p1.name + ' vs ' + p2.name + ')');
+  }
+}
+
 wss.on('connection', (ws) => {
   ws.isAlive = true;
   ws.roomCode = null;
@@ -372,11 +394,29 @@ wss.on('connection', (ws) => {
         send(target, { type: 'chat', data: msg.data });
         break;
       }
+      // 匹配联机：加入匹配队列
+      case 'match': {
+        if (ws.roomCode) { send(ws, { type: 'error', msg: '你已在房间中' }); break; }
+        removeFromQueue(ws);
+        matchQueue.push({ ws, name: msg.name || '玩家', createdAt: Date.now() });
+        send(ws, { type: 'match_waiting', queue: matchQueue.length });
+        console.log('[' + new Date().toLocaleTimeString() + '] 🎯 ' + (msg.name || '玩家') + ' 进入匹配队列（当前 ' + matchQueue.length + ' 人）');
+        tryMatchPair();
+        break;
+      }
+      // 取消匹配
+      case 'match_cancel': {
+        if (removeFromQueue(ws)) {
+          console.log('[' + new Date().toLocaleTimeString() + '] 玩家取消匹配');
+        }
+        break;
+      }
     }
   });
 
   // 断开连接
   ws.on('close', () => {
+    removeFromQueue(ws); // 先从匹配队列移除
     const code = ws.roomCode;
     if (!code) return;
     const room = rooms.get(code);
@@ -413,6 +453,18 @@ setInterval(() => {
     }
   });
 }, 60000);
+
+// 匹配超时清理（60秒未匹配到，通知客户端自动AI陪玩）
+setInterval(() => {
+  const now = Date.now();
+  for (let i = matchQueue.length - 1; i >= 0; i--) {
+    if (now - matchQueue[i].createdAt > 60 * 1000) {
+      send(matchQueue[i].ws, { type: 'match_timeout' });
+      matchQueue.splice(i, 1);
+      console.log('[' + new Date().toLocaleTimeString() + '] 匹配超时，移除玩家');
+    }
+  }
+}, 5000);
 
 function getIPs() {
   const os = require('os');
