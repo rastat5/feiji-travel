@@ -17,6 +17,7 @@
     ]
   },
   "changelog": [
+    "v3.26 数据已接入云端Redis数据库（永久保存验证）",
     "游戏数据接入Render云端Redis数据库，存档/账号/排行榜永久保存，不再因重启丢失",
     "服务器地址从临时ngrok切换为Render永久云端 feiji-travel.onrender.com",
     "存档、排行榜、账号系统、联机对战全部指向云端服务器",
