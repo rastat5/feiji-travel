@@ -1,0 +1,15 @@
+{
+  "name": "shooter-game",
+  "version": "3.25",
+  "description": "飞机旅行 - 飞行射击游戏云端服务器",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "我爱吃鸡腿饭",
+  "license": "ISC",
+  "dependencies": {
+    "ws": "^8.21.3"
+  }
+}
