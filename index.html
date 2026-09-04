@@ -1297,6 +1297,18 @@
   }
 
 </style>
+<style>
+/* ===== 禁止游戏图片被长按保存到手机相册 ===== */
+img, canvas, [class*="img"], [class*="skin"], [class*="tower"] {
+  -webkit-touch-callout: none !important;
+  -webkit-user-drag: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  user-select: none !important;
+  -webkit-tap-highlight-color: transparent;
+}
+</style>
 </head>
 <body>
 <!-- APP启动画面 -->
@@ -2169,7 +2181,7 @@
     <div class="mode-subtitle">两台设备连接同一服务器实时对战</div>
     <div style="width:100%;max-width:340px;margin:0 auto;padding:0 8px;">
       <div style="font-size:11px;color:rgba(255,255,255,0.5);text-align:left;margin-bottom:4px;">① 服务器地址（先启动联机服务器）</div>
-      <input type="text" id="netServerInput" value="wss://umbrella-alienable-hurray.ngrok-free.dev" placeholder="ws://主机IP:8000"
+      <input type="text" id="netServerInput" value="wss://feiji-travel.onrender.com" placeholder="ws://主机IP:8000"
         style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:#fff;font-size:13px;box-sizing:border-box;margin-bottom:14px;">
       <button class="btn btn-primary" id="netCreateBtn" style="width:100%;padding:12px;font-size:15px;">🛡 创建房间（玩家1）</button>
       <div style="display:flex;align-items:center;margin:14px 0;color:rgba(255,255,255,0.35);font-size:11px;">
@@ -2335,7 +2347,7 @@ if ('serviceWorker' in navigator) {
   }
 
   // ===== 自动更新检查 =====
-  const CURRENT_VERSION = '3.25';
+  const CURRENT_VERSION = '3.26';
   // 自动获取当前服务器地址（优先使用当前页面地址，失败时使用默认地址）
   function getUpdateServerUrl() {
     try {
@@ -2343,7 +2355,7 @@ if ('serviceWorker' in navigator) {
         return location.protocol + '//' + location.host;
       }
     } catch(e) {}
-    return 'https://umbrella-alienable-hurray.ngrok-free.dev';
+    return 'https://feiji-travel.onrender.com';
   }
 
   // 通用API请求头（绕过ngrok免费版警告页面）
@@ -3989,7 +4001,7 @@ if ('serviceWorker' in navigator) {
         cloudServerUrl = location.protocol + '//' + location.host;
       }
     } catch(e) {}
-    return cloudServerUrl || 'https://umbrella-alienable-hurray.ngrok-free.dev';
+    return cloudServerUrl || 'https://feiji-travel.onrender.com';
   }
 
   // 上传用户数据到云端服务器
@@ -11010,7 +11022,7 @@ if ('serviceWorker' in navigator) {
   // ===== 网络联机界面事件 =====
   document.getElementById('netCreateBtn').addEventListener('click', async () => {
     if (netWs) { updateNetStatus('已连接服务器，请等待或先返回重试'); return; }
-    const serverUrl = (document.getElementById('netServerInput').value || '').trim() || 'wss://umbrella-alienable-hurray.ngrok-free.dev';
+    const serverUrl = (document.getElementById('netServerInput').value || '').trim() || 'wss://feiji-travel.onrender.com';
     updateNetStatus('⏳ 正在连接服务器...');
     try {
       await netConnect(serverUrl);
@@ -11023,7 +11035,7 @@ if ('serviceWorker' in navigator) {
   });
   document.getElementById('netJoinBtn').addEventListener('click', async () => {
     if (netWs) { updateNetStatus('已连接服务器，请等待或先返回重试'); return; }
-    const serverUrl = (document.getElementById('netServerInput').value || '').trim() || 'wss://umbrella-alienable-hurray.ngrok-free.dev';
+    const serverUrl = (document.getElementById('netServerInput').value || '').trim() || 'wss://feiji-travel.onrender.com';
     const code = (document.getElementById('netJoinCode').value || '').trim().toUpperCase();
     if (!code) { updateNetStatus('请输入6位房间码'); return; }
     updateNetStatus('⏳ 正在连接服务器并加入房间...');
@@ -11120,6 +11132,24 @@ if ('serviceWorker' in navigator) {
     // 5秒后自动显示"点击进入"（CSS已处理），10秒后自动进入
     setTimeout(() => { if (!entered) enterGame(); }, 15000);
   })();
+})();
+</script>
+<script>
+// ===== 防止游戏图片被长按保存/拖拽（避免图片被添加到手机相册） =====
+(function () {
+  function block(e) {
+    var t = e.target;
+    if (t && t.tagName === 'IMG') {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }
+  }
+  document.addEventListener('contextmenu', block, true);
+  document.addEventListener('dragstart', block, true);
+  document.addEventListener('selectstart', function (e) {
+    if (e.target && e.target.tagName === 'IMG') e.preventDefault();
+  }, true);
 })();
 </script>
 </body>
