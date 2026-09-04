@@ -2126,6 +2126,12 @@ img, canvas, [class*="img"], [class*="skin"], [class*="tower"] {
         <div class="mode-desc">跨设备实时对战！两台设备连接同一服务器，创建或加入房间，远程联机！</div>
         <div class="mode-tag" style="background:rgba(0,200,255,0.2);color:#00d4ff;">跨设备</div>
       </button>
+      <button class="mode-card mode-net" id="matchModeBtn" style="border-color:rgba(255,160,0,0.5);background:linear-gradient(135deg,rgba(255,150,0,0.18),rgba(200,100,0,0.12));">
+        <div class="mode-icon">&#127919;</div>
+        <div class="mode-name">匹配联机</div>
+        <div class="mode-desc">自动匹配其他玩家联机开打！1分钟内没人匹配，自动AI陪玩开始游戏！</div>
+        <div class="mode-tag" style="background:rgba(255,160,0,0.25);color:#ffb84d;">快速匹配</div>
+      </button>
     </div>
     <button class="btn btn-secondary" id="modeBackBtn" style="margin-top:20px;">返回大厅</button>
   </div>
@@ -2198,6 +2204,19 @@ img, canvas, [class*="img"], [class*="skin"], [class*="tower"] {
       <div id="netStatus" style="margin-top:14px;min-height:44px;font-size:12px;color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.06);border-radius:10px;padding:10px 12px;text-align:center;word-break:break-all;"></div>
     </div>
     <button class="btn btn-secondary" id="netBackBtn" style="margin-top:16px;">返回</button>
+  </div>
+
+  <!-- 匹配联机界面 -->
+  <div class="overlay hidden" id="matchScreen">
+    <div class="mode-title">🎯 匹配联机</div>
+    <div class="mode-subtitle">自动寻找联机队友</div>
+    <div style="text-align:center;padding:24px 0;">
+      <div style="font-size:58px;animation:rotatePhone 2s ease-in-out infinite;">🔍</div>
+      <div id="matchStatus" style="font-size:15px;color:rgba(255,255,255,0.85);margin-top:16px;">正在连接服务器...</div>
+      <div id="matchCountdown" style="font-size:36px;font-weight:bold;color:#ffb84d;margin-top:12px;">60</div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:6px;">秒后没匹配到玩家，将自动AI陪玩开始游戏</div>
+    </div>
+    <button class="btn btn-secondary" id="matchCancelBtn" style="margin-top:10px;">取消匹配</button>
   </div>
 
   <!-- 暂停界面 -->
@@ -2347,7 +2366,7 @@ if ('serviceWorker' in navigator) {
   }
 
   // ===== 自动更新检查 =====
-  const CURRENT_VERSION = '3.26';
+  const CURRENT_VERSION = '3.27';
   // 自动获取当前服务器地址（优先使用当前页面地址，失败时使用默认地址）
   function getUpdateServerUrl() {
     try {
@@ -8899,6 +8918,69 @@ if ('serviceWorker' in navigator) {
     playLobbyMusic();
   }
 
+  // ===== 匹配联机 =====
+  let matchTimer = null;        // 匹配倒计时定时器
+  let matchCountdownValue = 60; // 匹配倒计时秒数
+  function updateMatchStatus(text) {
+    const el = document.getElementById('matchStatus');
+    if (el) el.textContent = text || '';
+  }
+  function updateMatchCountdown() {
+    const el = document.getElementById('matchCountdown');
+    if (el) el.textContent = matchCountdownValue;
+  }
+  function startMatchAI() {
+    // 超时/连接失败后：自动AI陪玩开始游戏
+    if (matchTimer) clearInterval(matchTimer);
+    matchTimer = null;
+    if (netWs) { try { netWs.close(); } catch(e){} netWs = null; netConnected = false; }
+    document.getElementById('matchScreen').classList.add('hidden');
+    gameMode = 'multi';
+    aiTeammateMode = true;
+    startGame();
+  }
+  function startMatch() {
+    if (netWs) { try { netWs.close(); } catch(e){} netWs = null; netConnected = false; }
+    document.getElementById('modeSelectScreen').classList.add('hidden');
+    document.getElementById('matchScreen').classList.remove('hidden');
+    updateMatchStatus('正在连接服务器...');
+    matchCountdownValue = 60;
+    updateMatchCountdown();
+    if (matchTimer) clearInterval(matchTimer);
+    matchTimer = setInterval(() => {
+      matchCountdownValue--;
+      updateMatchCountdown();
+      if (matchCountdownValue <= 0) {
+        clearInterval(matchTimer);
+        matchTimer = null;
+        // 60秒超时：取消匹配，AI陪玩
+        if (netWs) { try { netSend({ type: 'match_cancel' }); } catch(e){} }
+        startMatchAI();
+      }
+    }, 1000);
+    const serverUrl = (document.getElementById('netServerInput').value || '').trim() || 'wss://feiji-travel.onrender.com';
+    netConnect(serverUrl).then(() => {
+      updateMatchStatus('正在匹配中...');
+      const name = currentUsername || playerName || '玩家1';
+      netSend({ type: 'match', name: name });
+    }).catch((e) => {
+      updateMatchStatus('❌ 连接失败：' + e.message + '，1秒后直接AI陪玩');
+      setTimeout(startMatchAI, 1000);
+    });
+  }
+  function cancelMatch() {
+    if (matchTimer) clearInterval(matchTimer);
+    matchTimer = null;
+    if (netWs) {
+      try { netSend({ type: 'match_cancel' }); } catch(e){}
+      try { netWs.close(); } catch(e){}
+      netWs = null;
+      netConnected = false;
+    }
+    document.getElementById('matchScreen').classList.add('hidden');
+    document.getElementById('modeSelectScreen').classList.remove('hidden');
+  }
+
   // ===== 跨设备网络联机（主机权威模型） =====
   let netWs = null;            // WebSocket 连接
   let netRole = null;          // 'host' 主机 / 'client' 客户端
@@ -8988,6 +9070,42 @@ if ('serviceWorker' in navigator) {
       updateNetStatus('❌ 对方已离开，联机结束');
       if (gameState === STATE.PLAYING) pauseGame();
       document.getElementById('netScreen').classList.remove('hidden');
+    }
+    // ===== 匹配联机 =====
+    if (msg.type === 'matched') {
+      // 匹配成功！进入联机
+      if (matchTimer) clearInterval(matchTimer);
+      matchTimer = null;
+      document.getElementById('matchScreen').classList.add('hidden');
+      netRoomCode = msg.code;
+      if (msg.role === 'host') {
+        netRole = 'host';
+        gameMode = 'multi';
+        aiTeammateMode = false;
+        updateNetStatus('🎉 已匹配到 ' + msg.opponent + '！开始联机！');
+        netLog('matched as host, room', msg.code);
+        startGame(); // 主机跑完整游戏
+      } else {
+        netRole = 'client';
+        gameMode = 'multi';
+        aiTeammateMode = false;
+        netLog('matched as client, room', msg.code);
+        netStartClient(); // 客户端模式
+      }
+    }
+    if (msg.type === 'match_timeout') {
+      // 服务器兜底通知：匹配超时（1分钟）→ 自动AI陪玩
+      if (!document.getElementById('matchScreen').classList.contains('hidden')) {
+        if (matchTimer) clearInterval(matchTimer);
+        matchTimer = null;
+        document.getElementById('matchScreen').classList.add('hidden');
+        gameMode = 'multi';
+        aiTeammateMode = true;
+        startGame();
+      }
+    }
+    if (msg.type === 'match_waiting') {
+      updateMatchStatus('正在匹配中... 当前匹配队列 ' + (msg.queue || 1) + ' 人');
     }
     // 语音消息处理
     if (msg.type === 'voice' && voiceEnabled) {
@@ -9084,7 +9202,7 @@ if ('serviceWorker' in navigator) {
     }
     if (!player2.img) { player2.img = new Image(); player2.img.src = 'https://aka.doubaocdn.com/s/rJgMGTne8c'; }
     // 客户端只显示 HUD 和渲染循环，暂停/商店/狂暴按钮隐藏
-    ['startScreen','gameOverScreen','pauseScreen','levelPassScreen','victoryScreen','bossDefeatScreen','shopScreen','lobbyScreen','skinScreen','dailyScreen','rankScreen','loginScreen','friendScreen','chatScreen','modeSelectScreen','rechargeScreen','settingsScreen'].forEach(id => document.getElementById(id).classList.add('hidden'));
+    ['startScreen','gameOverScreen','pauseScreen','levelPassScreen','victoryScreen','bossDefeatScreen','shopScreen','lobbyScreen','skinScreen','dailyScreen','rankScreen','loginScreen','friendScreen','chatScreen','modeSelectScreen','rechargeScreen','settingsScreen','matchScreen'].forEach(id => document.getElementById(id).classList.add('hidden'));
     document.getElementById('hud').style.display = 'block';
     document.getElementById('pauseBtn').style.display = 'flex';
     document.getElementById('shopBtn').style.display = 'none';
@@ -11014,6 +11132,13 @@ if ('serviceWorker' in navigator) {
       }
     } catch(e) {}
     updateNetStatus('连接服务器后创建房间或输入房间码加入');
+  });
+  // 匹配联机
+  document.getElementById('matchModeBtn').addEventListener('click', () => {
+    startMatch();
+  });
+  document.getElementById('matchCancelBtn').addEventListener('click', () => {
+    cancelMatch();
   });
   document.getElementById('modeBackBtn').addEventListener('click', () => {
     document.getElementById('modeSelectScreen').classList.add('hidden');
