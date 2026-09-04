@@ -2387,7 +2387,7 @@ if ('serviceWorker' in navigator) {
   }
 
   // ===== 自动更新检查 =====
-  const CURRENT_VERSION = '3.30';
+  const CURRENT_VERSION = '3.31';
   // 自动获取当前服务器地址（优先使用当前页面地址，失败时使用默认地址）
   function getUpdateServerUrl() {
     try {
@@ -9226,6 +9226,9 @@ if ('serviceWorker' in navigator) {
   let netRemoteState = null;   // 客户端：主机同步的最新状态
   let netClientLoopId = null;  // 客户端渲染循环 ID
   let netClientKeyState = {};  // 客户端按键状态（上一次发送）
+  let netClientLastBeat = 0;   // 客户端按键心跳时间（防断火）
+  let netClientLastTs = 0;     // 客户端本地预测帧时间戳
+  let clientP2Bullets = [];    // 客户端本地P2子弹（仅渲染反馈，命中由host判定）
   let netFrameCount = 0;       // 主机广播帧计数
   let pvpMode = false;         // PvP对战模式（联机时两人互相对战）
   let p2PvpBullets = [];       // PvP模式：P2（顶部）向下发射的子弹，打P1
@@ -9402,11 +9405,12 @@ if ('serviceWorker' in navigator) {
       p2PvpBullets: p2PvpBullets.slice(0, 20).map(b => ({ x:b.x, y:b.y, w:b.w, h:b.h }))
     };
   }
-  // 主机每5帧广播一次状态（降低频率减少卡顿，原来每2帧太频繁）
+  // 主机每N帧广播一次状态（PvP对战弹幕对轰更流畅：每3帧；其他模式每5帧降带宽）
   function netBroadcastState() {
     if (netRole !== 'host' || !netConnected) return;
     netFrameCount++;
-    if (netFrameCount % 5 === 0) {
+    const interval = pvpMode ? 3 : 5;
+    if (netFrameCount % interval === 0) {
       netSend({ type: 'state', data: netPackState() });
     }
   }
@@ -9425,6 +9429,8 @@ if ('serviceWorker' in navigator) {
     keys2.up = !!op.up;
     keys2.down = !!op.down;
     keys2.fire = !!op.fire;
+    // 网络客户端操作视为有效输入：刷新P2输入时间并让AI退出（防止4秒空闲误判导致AI抢控制）
+    onPlayerInput(2);
     if (op.event === 'bomb') useBomb2();
     if (op.event === 'rage') activateRage();
   }
@@ -9432,8 +9438,8 @@ if ('serviceWorker' in navigator) {
   // 主机游戏循环中应用缓冲的客户端操作（确保持续移动）
   function netApplyBufferedOp() {
     if (netRole !== 'host' || !netClientOpBuffer || !player2) return;
-    // 如果操作超过2秒没有更新，自动停止移动（防止客户端断开后角色一直移动）
-    if (Date.now() - netClientOpTimestamp > 2000) {
+    // 如果操作超过3.5秒没有更新，自动停止移动（客户端心跳为300ms，3.5秒超时有足够余量）
+    if (Date.now() - netClientOpTimestamp > 3500) {
       keys2.left = false;
       keys2.right = false;
       keys2.up = false;
@@ -9456,6 +9462,9 @@ if ('serviceWorker' in navigator) {
     gameMode = 'multi';
     netRemoteState = null;
     netClientKeyState = {};
+    netClientLastBeat = 0;
+    netClientLastTs = 0;
+    clientP2Bullets = [];
     // 初始化本地星星背景
     if (!stars.length) initStars();
     // 初始化客户端自己的 P2 形象
@@ -9505,6 +9514,34 @@ if ('serviceWorker' in navigator) {
   // 客户端渲染循环
   function netClientLoop(timestamp) {
     if (netRole !== 'client') return;
+    // 客户端本地预测：自己的P2位置直接用按键更新，消除操作延迟（不等待host广播）
+    if (player2) {
+      const dt = Math.min((timestamp - (netClientLastTs || timestamp)) / 1000, 0.05);
+      netClientLastTs = timestamp;
+      const spd = (player2.baseSpeed || 380);
+      if (keys2.left) player2.x -= spd * dt;
+      if (keys2.right) player2.x += spd * dt;
+      if (keys2.up) player2.y -= spd * dt;
+      if (keys2.down) player2.y += spd * dt;
+      player2.x = Math.max(0, Math.min(W - player2.width, player2.x));
+      if (pvpMode) player2.y = Math.max(40, Math.min(H * 0.45, player2.y));
+      else player2.y = Math.max(40, Math.min(H - 120, player2.y));
+      // 本地P2子弹：客户端本地生成并移动（射击即时反馈，命中判定由host权威）
+      if (keys2.fire && (player2.cooldown -= dt) <= 0) {
+        player2.cooldown = (player2.baseFireRate || 0.22);
+        clientP2Bullets.push({
+          x: player2.x + player2.width / 2 - 3,
+          y: player2.y + (pvpMode ? 0 : -4),
+          w: 6, h: 14,
+          vx: 0, vy: pvpMode ? 460 : -460,
+          life: 3
+        });
+      }
+      clientP2Bullets = clientP2Bullets.filter(b => {
+        b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
+        return b.life > 0 && b.y > -30 && b.y < H + 30;
+      });
+    }
     netRenderRemote(timestamp);
     netSendOp();
     netClientLoopId = requestAnimationFrame(netClientLoop);
@@ -9536,11 +9573,18 @@ if ('serviceWorker' in navigator) {
       keys2.rageRequested = false;
     }
     
-    // 只有按键变化或有一次性事件时才发送
-    if (changed || eventType) {
+    // 心跳发送：持续按住射击/移动时，每300ms强制发送一次当前状态，
+    // 防止host端2秒无操作超时自动停火（导致攻击卡/断断续续）
+    const now = Date.now();
+    const anyActive = cur.left || cur.right || cur.up || cur.down || cur.fire;
+    const needHeartbeat = anyActive && (now - netClientLastBeat > 300);
+    
+    // 只有按键变化或有一次性事件或需要心跳时才发送
+    if (changed || eventType || needHeartbeat) {
       const op = Object.assign({}, cur);
       if (eventType) op.event = eventType;
       netSend({ type: 'op', data: op });
+      netClientLastBeat = now;
     }
     
     // 更新按键状态
@@ -9615,6 +9659,14 @@ if ('serviceWorker' in navigator) {
       ctx.fillStyle = '#74b9ff'; ctx.shadowColor = '#74b9ff'; ctx.shadowBlur = 10;
       ctx.beginPath(); ctx.arc(b.x + b.w/2, b.y + b.h/2, b.w/2, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 0;
     });
+    // 客户端本地P2子弹（射击即时反馈，仅客户端可见，命中由host判定）
+    if (clientP2Bullets.length) {
+      ctx.fillStyle = '#74b9ff'; ctx.shadowColor = '#74b9ff'; ctx.shadowBlur = 10;
+      clientP2Bullets.forEach(b => {
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+      });
+      ctx.shadowBlur = 0;
+    }
     // PvP对战横幅
     if (st.pvpMode) {
       ctx.fillStyle = 'rgba(255,80,120,0.15)'; ctx.fillRect(0, 0, W, 4);
@@ -9698,10 +9750,11 @@ if ('serviceWorker' in navigator) {
       ctx.fillStyle = '#ff8c42'; ctx.font = 'bold 11px Arial'; ctx.textAlign = 'center';
       ctx.fillText('P1', st.player.x + 24, st.player.y - 6);
     }
-    // P2（客户端自己）
-    const p2x = st.player2 ? st.player2.x : player2 ? player2.x : W/2;
-    const p2y = st.player2 ? st.player2.y : player2 ? player2.y : H - 90;
-    if (st.player2) { player2 = player2 || {width:48,height:48}; player2.x = st.player2.x; player2.y = st.player2.y; }
+    // P2（客户端自己，本地预测位置优先，避免操作延迟）
+    const p2x = player2 ? player2.x : st.player2 ? st.player2.x : W/2;
+    const p2y = player2 ? player2.y : st.player2 ? st.player2.y : H - 90;
+    if (st.player2 && !player2) { player2 = { x: st.player2.x, y: st.player2.y, width:48, height:48 }; }
+    if (player2) { player2.width = 48; player2.height = 48; }
     ctx.save();
     ctx.globalAlpha = 0.3 + Math.sin(Date.now()/150)*0.1;
     ctx.fillStyle = '#a55eea';
