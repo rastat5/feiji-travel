@@ -1,0 +1,33 @@
+{
+  "name": "飞机旅行 - 飞行射击游戏",
+  "short_name": "飞机旅行",
+  "description": "一款刺激的飞行射击小游戏，1000关闯关 + 无尽模式 + Boss战 + 神器系统 + 联机对战",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#0a0a1a",
+  "theme_color": "#ffd166",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "categories": ["games", "entertainment", "action"],
+  "icons": [
+    { "src": "https://aka.doubaocdn.com/s/Ye53j2mWvq", "sizes": "48x48", "type": "image/png", "purpose": "any maskable" },
+    { "src": "https://aka.doubaocdn.com/s/Ye53j2mWvq", "sizes": "72x72", "type": "image/png", "purpose": "any maskable" },
+    { "src": "https://aka.doubaocdn.com/s/Ye53j2mWvq", "sizes": "96x96", "type": "image/png", "purpose": "any maskable" },
+    { "src": "https://aka.doubaocdn.com/s/Ye53j2mWvq", "sizes": "128x128", "type": "image/png", "purpose": "any maskable" },
+    { "src": "https://aka.doubaocdn.com/s/Ye53j2mWvq", "sizes": "144x144", "type": "image/png", "purpose": "any maskable" },
+    { "src": "https://aka.doubaocdn.com/s/Ye53j2mWvq", "sizes": "152x152", "type": "image/png", "purpose": "any maskable" },
+    { "src": "https://aka.doubaocdn.com/s/Ye53j2mWvq", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "https://aka.doubaocdn.com/s/Ye53j2mWvq", "sizes": "256x256", "type": "image/png", "purpose": "any maskable" },
+    { "src": "https://aka.doubaocdn.com/s/Ye53j2mWvq", "sizes": "384x384", "type": "image/png", "purpose": "any maskable" },
+    { "src": "https://aka.doubaocdn.com/s/Ye53j2mWvq", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "快速开始", "short_name": "开始游戏", "description": "直接进入游戏", "url": "./index.html?action=start", "icons": [{ "src": "https://aka.doubaocdn.com/s/Ye53j2mWvq", "sizes": "96x96" }] },
+    { "name": "游戏大厅", "short_name": "大厅", "description": "进入游戏大厅", "url": "./index.html?action=lobby", "icons": [{ "src": "https://aka.doubaocdn.com/s/Ye53j2mWvq", "sizes": "96x96" }] },
+    { "name": "排行榜", "short_name": "排行", "description": "查看排行榜", "url": "./index.html?action=leaderboard", "icons": [{ "src": "https://aka.doubaocdn.com/s/Ye53j2mWvq", "sizes": "96x96" }] }
+  ],
+  "prefer_related_applications": false
+}
