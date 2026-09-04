@@ -2381,7 +2381,7 @@ if ('serviceWorker' in navigator) {
   }
 
   // ===== 自动更新检查 =====
-  const CURRENT_VERSION = '3.28';
+  const CURRENT_VERSION = '3.29';
   // 自动获取当前服务器地址（优先使用当前页面地址，失败时使用默认地址）
   function getUpdateServerUrl() {
     try {
@@ -8761,12 +8761,27 @@ if ('serviceWorker' in navigator) {
   function bindTouch(id, key, playerNum) {
     const btn = document.getElementById(id);
     if (!btn) return;
-    btn.addEventListener('touchstart', e => { e.preventDefault(); keys[key]=true; onPlayerInput(playerNum || 1); }, {passive:false});
-    btn.addEventListener('touchend', e => { e.preventDefault(); keys[key]=false; }, {passive:false});
-    btn.addEventListener('touchcancel', e => { e.preventDefault(); keys[key]=false; }, {passive:false});
-    btn.addEventListener('mousedown', () => { keys[key]=true; onPlayerInput(playerNum || 1); });
-    btn.addEventListener('mouseup', () => keys[key]=false);
-    btn.addEventListener('mouseleave', () => keys[key]=false);
+    const press = (e) => {
+      e.preventDefault();
+      if (netRole === 'client') {
+        keys2[key] = true;
+        onPlayerInput(2);
+      } else {
+        keys[key] = true;
+        onPlayerInput(playerNum || 1);
+      }
+    };
+    const release = (e) => {
+      e.preventDefault();
+      const k = (netRole === 'client') ? keys2 : keys;
+      k[key] = false;
+    };
+    btn.addEventListener('touchstart', press, {passive:false});
+    btn.addEventListener('touchend', release, {passive:false});
+    btn.addEventListener('touchcancel', release, {passive:false});
+    btn.addEventListener('mousedown', press);
+    btn.addEventListener('mouseup', release);
+    btn.addEventListener('mouseleave', release);
   }
   bindTouch('fireBtn','fire',1);
 
@@ -8789,12 +8804,13 @@ if ('serviceWorker' in navigator) {
     const stickY = Math.sin(angle) * clampedDist;
     joystickStick.style.transform = `translate(${stickX}px, ${stickY}px)`;
     
-    // 更新按键状态
+    // 更新按键状态（联机客户端模式控制P2蓝色战机）
     const threshold = 10;
-    keys.left = stickX < -threshold;
-    keys.right = stickX > threshold;
-    keys.up = stickY < -threshold;
-    keys.down = stickY > threshold;
+    const ctrlKeys = (netRole === 'client') ? keys2 : keys;
+    ctrlKeys.left = stickX < -threshold;
+    ctrlKeys.right = stickX > threshold;
+    ctrlKeys.up = stickY < -threshold;
+    ctrlKeys.down = stickY > threshold;
   }
 
   function resetJoystick() {
@@ -8802,14 +8818,15 @@ if ('serviceWorker' in navigator) {
     joystickTouchId = null;
     joystickBase.classList.remove('active');
     joystickStick.style.transform = 'translate(0, 0)';
-    keys.left = false; keys.right = false; keys.up = false; keys.down = false;
+    const ctrlKeys = (netRole === 'client') ? keys2 : keys;
+    ctrlKeys.left = false; ctrlKeys.right = false; ctrlKeys.up = false; ctrlKeys.down = false;
   }
 
   // 虚拟摇杆区域触摸事件
   joystickArea.addEventListener('touchstart', e => {
     if (gameState !== STATE.PLAYING) return;
     e.preventDefault();
-    onPlayerInput(1); // 玩家操作摇杆，立即禁用AI
+    onPlayerInput(netRole === 'client' ? 2 : 1); // 玩家操作摇杆，立即禁用AI（客户端=P2）
     const touch = e.touches[0];
     joystickActive = true;
     joystickTouchId = touch.identifier;
@@ -8845,25 +8862,39 @@ if ('serviceWorker' in navigator) {
   // 炸弹按钮（触摸即触发，无延迟）
   const bombBtnEl = document.getElementById('bombBtn');
   if (bombBtnEl) {
-    bombBtnEl.addEventListener('touchstart', e => { e.preventDefault(); onPlayerInput(1); useBomb(); }, {passive:false});
-    bombBtnEl.addEventListener('click', () => { onPlayerInput(1); useBomb(); });
+    bombBtnEl.addEventListener('touchstart', e => {
+      e.preventDefault();
+      if (netRole === 'client') { keys2.bombRequested = true; onPlayerInput(2); }
+      else { onPlayerInput(1); useBomb(); }
+    }, {passive:false});
+    bombBtnEl.addEventListener('click', () => {
+      if (netRole === 'client') { keys2.bombRequested = true; onPlayerInput(2); }
+      else { onPlayerInput(1); useBomb(); }
+    });
   }
   // 狂暴按钮（触摸即触发）
   const rageBtnEl = document.getElementById('rageBtn');
   if (rageBtnEl) {
-    rageBtnEl.addEventListener('touchstart', e => { e.preventDefault(); onPlayerInput(1); activateRage(); }, {passive:false});
-    rageBtnEl.addEventListener('click', () => { onPlayerInput(1); activateRage(); });
+    rageBtnEl.addEventListener('touchstart', e => {
+      e.preventDefault();
+      if (netRole === 'client') { keys2.rageRequested = true; onPlayerInput(2); }
+      else { onPlayerInput(1); activateRage(); }
+    }, {passive:false});
+    rageBtnEl.addEventListener('click', () => {
+      if (netRole === 'client') { keys2.rageRequested = true; onPlayerInput(2); }
+      else { onPlayerInput(1); activateRage(); }
+    });
   }
 
   // Canvas 右半屏触摸射击（左半屏留给虚拟摇杆）
   canvas.addEventListener('touchstart', e => {
     if (gameState!==STATE.PLAYING) return;
     e.preventDefault();
-    onPlayerInput(1); // 玩家触摸屏幕，立即禁用AI
+    onPlayerInput(netRole === 'client' ? 2 : 1); // 玩家触摸屏幕，立即禁用AI（客户端=P2）
     // 只响应右半屏触摸
     const touch = e.touches[0];
     if (touch.clientX > window.innerWidth / 2) {
-      keys.fire=true;
+      if (netRole === 'client') keys2.fire=true; else keys.fire=true;
     }
   }, {passive:false});
   canvas.addEventListener('touchend', e => {
@@ -8876,7 +8907,7 @@ if ('serviceWorker' in navigator) {
         break;
       }
     }
-    if (!hasRightTouch) keys.fire=false;
+    if (!hasRightTouch) { if (netRole === 'client') keys2.fire=false; else keys.fire=false; }
   }, {passive:false});
 
   document.addEventListener('visibilitychange', () => {
@@ -9226,6 +9257,15 @@ if ('serviceWorker' in navigator) {
     lastTime = performance.now();
     netClientLoopId = requestAnimationFrame(netClientLoop);
     netLog('client started, waiting for host state');
+    // 联机操作提示：告诉客户端玩家如何控制自己的蓝色战机
+    try {
+      const tip = document.createElement('div');
+      tip.id = 'netClientTip';
+      tip.style.cssText = 'position:fixed;top:15%;left:50%;transform:translateX(-50%);z-index:99999;background:rgba(10,10,30,0.92);border:1px solid #70a1ff;border-radius:12px;padding:12px 18px;color:#fff;font-size:14px;line-height:1.7;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.5);pointer-events:none;max-width:86vw;';
+      tip.innerHTML = '<b style="color:#70a1ff;">🛩️ 你控制蓝色战机（P2）</b><br>📱 手机：<b>左半屏摇杆移动</b>，<b>右半屏/射击键攻击</b>，💣炸弹 🌀狂暴<br>⌨️ 电脑：<b>方向键</b>移动，<b>数字1</b>射击，<b>N</b>炸弹，<b>M</b>狂暴';
+      document.body.appendChild(tip);
+      setTimeout(() => { if (tip.parentNode) tip.parentNode.removeChild(tip); }, 5000);
+    } catch(e) {}
   }
   function netStopClient() {
     if (netClientLoopId) cancelAnimationFrame(netClientLoopId);
