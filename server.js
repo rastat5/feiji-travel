@@ -21,6 +21,43 @@ if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, '{}');
 if (!fs.existsSync(LEADERBOARD_FILE)) fs.writeFileSync(LEADERBOARD_FILE, '[]');
 if (!fs.existsSync(ACCOUNTS_FILE)) fs.writeFileSync(ACCOUNTS_FILE, '{}');
 
+// ===== Redis 云端持久化（Render Key Value 免费数据库） =====
+// 云端默认连接 Render 内部 Redis；无可用 Redis 时自动回落本地 JSON 文件
+const REDIS_URL = process.env.REDIS_URL || 'redis://red-dad34v67bikc739fif40:6379';
+let redisClient = null;
+let redisReady = false;
+try {
+  const { createClient } = require('redis');
+  if (REDIS_URL) {
+    redisClient = createClient({
+      url: REDIS_URL,
+      socket: { connectTimeout: 8000, reconnectStrategy: (r) => Math.min(r * 300, 5000) }
+    });
+    redisClient.on('error', () => { redisReady = false; });
+  }
+} catch (e) { redisClient = null; }
+
+function redisKey(file) { return 'feiji:' + path.basename(file); }
+
+const _cache = {};
+async function warmRedisCache() {
+  if (!redisClient) return;
+  try {
+    await redisClient.connect();
+    redisReady = true;
+    for (const f of [USERS_FILE, LEADERBOARD_FILE, ACCOUNTS_FILE]) {
+      try {
+        const val = await redisClient.get(redisKey(f));
+        if (val) _cache[f] = JSON.parse(val);
+      } catch (e) {}
+    }
+    console.log('[Redis] 云端数据库已连接，存档缓存加载完成');
+  } catch (e) {
+    console.log('[Redis] 连接失败，使用本地文件存储: ' + e.message);
+    redisReady = false;
+  }
+}
+
 // 简单的密码哈希（使用Node.js内置crypto）
 const crypto = require('crypto');
 function hashPassword(password, salt) {
@@ -31,10 +68,20 @@ function generateSalt() {
 }
 
 function readJSON(file) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch(e) { return {}; }
+  if (Object.prototype.hasOwnProperty.call(_cache, file)) return _cache[file];
+  try {
+    const d = JSON.parse(fs.readFileSync(file, 'utf8'));
+    _cache[file] = d;
+    return d;
+  } catch(e) { return {}; }
 }
 function writeJSON(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+  _cache[file] = data;
+  try { fs.writeFileSync(file, JSON.stringify(data, null, 2)); } catch(e) {}
+  // 同步到云端 Redis（确保重启后数据不丢）
+  if (redisClient && redisReady) {
+    redisClient.set(redisKey(file), JSON.stringify(data)).catch(() => {});
+  }
 }
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -379,15 +426,18 @@ function getIPs() {
   return ips;
 }
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log('==============================================');
-  console.log(' 飞机旅行 · 局域网联机服务器已启动');
-  console.log('----------------------------------------------');
-  console.log(' 本机访问: http://localhost:' + PORT);
-  getIPs().forEach(ip => {
-    console.log(' 局域网访问: http://' + ip + ':' + PORT);
+(async () => {
+  if (redisClient) await warmRedisCache();
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log('==============================================');
+    console.log(' 飞机旅行 · 联机服务器已启动' + (redisReady ? '（云端数据库已连接）' : '（本地文件存储）'));
+    console.log('----------------------------------------------');
+    console.log(' 本机访问: http://localhost:' + PORT);
+    getIPs().forEach(ip => {
+      console.log(' 局域网访问: http://' + ip + ':' + PORT);
+    });
+    console.log(' 其他设备连同一WiFi，浏览器打开上方局域网地址即可');
+    console.log(' 房间码由游戏内创建/加入生成');
+    console.log('==============================================');
   });
-  console.log(' 其他设备连同一WiFi，浏览器打开上方局域网地址即可');
-  console.log(' 房间码由游戏内创建/加入生成');
-  console.log('==============================================');
-});
+})();
