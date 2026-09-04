@@ -2387,7 +2387,7 @@ if ('serviceWorker' in navigator) {
   }
 
   // ===== 自动更新检查 =====
-  const CURRENT_VERSION = '3.31';
+  const CURRENT_VERSION = '3.32';
   // 自动获取当前服务器地址（优先使用当前页面地址，失败时使用默认地址）
   function getUpdateServerUrl() {
     try {
@@ -4917,32 +4917,38 @@ if ('serviceWorker' in navigator) {
   }
 
   // ===== 发射子弹 =====
+  // 射击音效节流：避免持续按住射击时高频创建音频节点导致卡顿/卡屏
+  let lastShootSfxTime = 0;
   function fireBullet() {
     if (player.cooldown > 0) return;
     let fireRate = getFireRate();
     // 快速射击武器：射速翻倍
     if (activeWeapon === 'rapid') fireRate *= 0.5;
     player.cooldown = fireRate;
-    // 初始化音频并播放开枪音效（不同角色不同音效）
-    initAudio();
-    SFX.shoot(currentSkin);
-    // 暗夜猎手专属攻击音效（原音效+打击感音效混合）
-    if (currentSkin === 'daily' && soundEnabled) {
-      try {
-        hunterAttackSound.currentTime = 0;
-        hunterAttackSound.play().catch(() => {});
-        playHitSound();
-      } catch(e) {}
+    // 播放开枪音效（不同角色不同音效）——已节流，避免每帧初始化音频/建节点
+    const nowSfx = performance.now();
+    if (nowSfx - lastShootSfxTime > 90) {
+      lastShootSfxTime = nowSfx;
+      SFX.shoot(currentSkin);
+      // 暗夜猎手专属攻击音效（原音效+打击感音效混合）
+      if (currentSkin === 'daily' && soundEnabled) {
+        try {
+          hunterAttackSound.currentTime = 0;
+          hunterAttackSound.play().catch(() => {});
+          playHitSound();
+        } catch(e) {}
+      }
     }
     let dmg = pvpMode ? 1 : getBulletDamage();
     let bw = equippedArtifact === 'bigbullet' ? 10 : 6;
     let bh = equippedArtifact === 'bigbullet' ? 22 : 16;
     let pierce = equippedArtifact === 'pierce';
+    // 武器颜色（提到外层定义，避免 PvP 模式块内 const 未定义导致崩溃）
+    const weaponInfo = activeWeapon ? WEAPON_TYPES.find(w => w.id === activeWeapon) : null;
+    const weaponColor = weaponInfo ? weaponInfo.color : '#ffd166';
     // PvP对战：禁用强化伤害，保持公平
     if (!pvpMode) {
       // 特殊武器效果
-      const weaponInfo = activeWeapon ? WEAPON_TYPES.find(w => w.id === activeWeapon) : null;
-      const weaponColor = weaponInfo ? weaponInfo.color : '#ffd166';
       if (activeWeapon === 'heavy') {
         // 重型武器：大子弹，伤害翻倍
         dmg *= 2;
@@ -5358,7 +5364,7 @@ if ('serviceWorker' in navigator) {
       player.y = Math.max(40, Math.min(H-120, player.y));
     }
     player.cooldown -= dt;
-    if (keys.fire) fireBullet();
+    if (keys.fire) { try { fireBullet(); } catch(e) {} }
     if (player.invincible > 0) player.invincible -= dt;
 
     // ===== AI接管系统（全部模式）=====
@@ -5688,7 +5694,7 @@ if ('serviceWorker' in navigator) {
         player2.y = Math.max(40, Math.min(H-120, player2.y));
       }
       player2.cooldown -= dt;
-      if (keys2.fire && !p2AIActive) fireBullet2();
+      if (keys2.fire && !p2AIActive) { try { fireBullet2(); } catch(e) {} }
       if (player2.invincible > 0) player2.invincible -= dt;
       // 狂暴光环也作用于第二玩家（共享狂暴状态）
       if (rageActive) {
@@ -5804,6 +5810,7 @@ if ('serviceWorker' in navigator) {
       if (b.angle) { b.x += Math.sin(b.angle)*b.speed*dt; }
       return b.y > -b.h && b.x > -20 && b.x < W+20;
     });
+    if (bullets.length > 300) bullets.splice(0, bullets.length - 300);
 
     // 敌方子弹
     enemyBullets = enemyBullets.filter(b => {
@@ -5811,6 +5818,7 @@ if ('serviceWorker' in navigator) {
       b.y += Math.sin(b.angle)*b.speed*dt;
       return b.y < H+20 && b.y > -20 && b.x > -20 && b.x < W+20;
     });
+    if (enemyBullets.length > 300) enemyBullets.splice(0, enemyBullets.length - 300);
 
     // PvP对战：P2（顶部蓝色战机）子弹向下移动
     p2PvpBullets = p2PvpBullets.filter(b => {
@@ -5935,6 +5943,7 @@ if ('serviceWorker' in navigator) {
       }
       return c.life > 0 && c.y < H+20;
     });
+    if (coinItems.length > 120) coinItems.splice(0, coinItems.length - 120);
 
     // Boss逻辑
     if (currentBoss) {
@@ -6105,6 +6114,7 @@ if ('serviceWorker' in navigator) {
       if (d.y < -20 || d.y > H+20 || d.x < -20 || d.x > W+20) return false;
       return true;
     });
+    if (drones.length > 30) drones.splice(0, drones.length - 30);
 
     // 子弹打敌人
     for (let i = bullets.length-1; i >= 0; i--) {
@@ -6323,6 +6333,7 @@ if ('serviceWorker' in navigator) {
       p.x += p.vx*dt; p.y += p.vy*dt; p.vy += 100*dt; p.life -= dt;
       return p.life > 0;
     });
+    if (particles.length > 500) particles.splice(0, particles.length - 500);
   }
 
   function updateBoss(dt) {
@@ -8463,11 +8474,15 @@ if ('serviceWorker' in navigator) {
     if (gameState !== STATE.PLAYING) return;
     const dt = Math.min((timestamp-lastTime)/1000, 0.05);
     lastTime = timestamp;
-    update(dt);
-    render();
-    // 联机主机：广播游戏状态给客户端（函数内部自动控制频率）
-    if (netRole === 'host' && netConnected) {
-      netBroadcastState();
+    try {
+      update(dt);
+      render();
+      // 联机主机：广播游戏状态给客户端（函数内部自动控制频率）
+      if (netRole === 'host' && netConnected) {
+        netBroadcastState();
+      }
+    } catch(e) {
+      // 单帧异常不中断主循环（防卡屏）
     }
     animationId = requestAnimationFrame(gameLoop);
   }
