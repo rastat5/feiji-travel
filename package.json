@@ -1,6 +1,6 @@
 {
-  "name": "shooter-game",
-  "version": "3.25",
+  "name": "feiji-travel",
+  "version": "3.26",
   "description": "飞机旅行 - 飞行射击游戏云端服务器",
   "main": "server.js",
   "scripts": {
@@ -10,6 +10,7 @@
   "author": "我爱吃鸡腿饭",
   "license": "ISC",
   "dependencies": {
-    "ws": "^8.21.3"
+    "ws": "^8.21.3",
+    "redis": "^4.7.0"
   }
 }
