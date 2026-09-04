@@ -303,7 +303,7 @@ function send(ws, obj) {
 }
 
 // ===== 匹配联机队列 =====
-const matchQueue = []; // [{ ws, name, createdAt }]
+const matchQueue = []; // [{ ws, name, mode, createdAt }]
 
 function removeFromQueue(ws) {
   const idx = matchQueue.findIndex(q => q.ws === ws);
@@ -311,17 +311,30 @@ function removeFromQueue(ws) {
   return false;
 }
 function tryMatchPair() {
-  while (matchQueue.length >= 2) {
-    const p1 = matchQueue.shift();
-    const p2 = matchQueue.shift();
-    const code = genRoomCode();
-    rooms.set(code, { host: p1.ws, guest: p2.ws, hostName: p1.name, guestName: p2.name, createdAt: Date.now() });
-    p1.ws.roomCode = code; p1.ws.isHost = true;
-    p2.ws.roomCode = code; p2.ws.isHost = false;
-    send(p1.ws, { type: 'matched', code: code, role: 'host', opponent: p2.name });
-    send(p2.ws, { type: 'matched', code: code, role: 'client', opponent: p1.name });
-    console.log('[' + new Date().toLocaleTimeString() + '] 🎯 匹配成功 ' + code + ' (' + p1.name + ' vs ' + p2.name + ')');
-  }
+  if (matchQueue.length < 2) return;
+  // 按模式分组配对（只有相同模式才能配对：合作coop / PvP对战pvp）
+  const groups = {};
+  matchQueue.forEach(q => {
+    const m = q.mode || 'coop';
+    if (!groups[m]) groups[m] = [];
+    groups[m].push(q);
+  });
+  Object.keys(groups).forEach(mode => {
+    const list = groups[mode];
+    while (list.length >= 2) {
+      const p1 = list.shift();
+      const p2 = list.shift();
+      removeFromQueue(p1.ws);
+      removeFromQueue(p2.ws);
+      const code = genRoomCode();
+      rooms.set(code, { host: p1.ws, guest: p2.ws, hostName: p1.name, guestName: p2.name, mode: mode, createdAt: Date.now() });
+      p1.ws.roomCode = code; p1.ws.isHost = true;
+      p2.ws.roomCode = code; p2.ws.isHost = false;
+      send(p1.ws, { type: 'matched', code: code, role: 'host', opponent: p2.name, mode: mode });
+      send(p2.ws, { type: 'matched', code: code, role: 'client', opponent: p1.name, mode: mode });
+      console.log('[' + new Date().toLocaleTimeString() + '] 🎯 匹配成功 ' + code + ' [' + mode + '] (' + p1.name + ' vs ' + p2.name + ')');
+    }
+  });
 }
 
 wss.on('connection', (ws) => {
@@ -398,8 +411,8 @@ wss.on('connection', (ws) => {
       case 'match': {
         if (ws.roomCode) { send(ws, { type: 'error', msg: '你已在房间中' }); break; }
         removeFromQueue(ws);
-        matchQueue.push({ ws, name: msg.name || '玩家', createdAt: Date.now() });
-        send(ws, { type: 'match_waiting', queue: matchQueue.length });
+        matchQueue.push({ ws, name: msg.name || '玩家', mode: msg.mode || 'coop', createdAt: Date.now() });
+        send(ws, { type: 'match_waiting', queue: matchQueue.length, mode: msg.mode || 'coop' });
         console.log('[' + new Date().toLocaleTimeString() + '] 🎯 ' + (msg.name || '玩家') + ' 进入匹配队列（当前 ' + matchQueue.length + ' 人）');
         tryMatchPair();
         break;
